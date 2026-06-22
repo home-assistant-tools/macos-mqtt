@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>MQTT Bridge</string>
+    <key>CFBundleDisplayName</key>
+    <string>MQTT Bridge</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.homeassistanttools.macosmqtt</string>
+    <key>CFBundleExecutable</key>
+    <string>MqttBridge</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__VERSION__</string>
+    <key>CFBundleVersion</key>
+    <string>__VERSION__</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 home-assistant-tools. MIT License.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Điều khiển âm lượng hệ thống.</string>
+</dict>
+</plist>
