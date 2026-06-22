@@ -17,7 +17,8 @@ struct Config: Codable {
 
     var vlcPath: String = "/Applications/VLC.app/Contents/MacOS/VLC"
     var m1ddcPath: String = "/opt/homebrew/bin/m1ddc"
-    var brightnessDisplays: [Int] = [1]
+    /// Empty = control all DDC displays automatically.
+    var brightnessDisplays: [Int] = []
 
     var cameras: [Camera] = []
 

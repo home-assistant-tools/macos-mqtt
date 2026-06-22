@@ -37,7 +37,7 @@ struct SettingsView: View {
                 group("Công cụ ngoài") {
                     field("Đường dẫn VLC", text: $vlcPath)
                     field("Đường dẫn m1ddc", text: $m1ddcPath)
-                    field("Màn hình chỉnh sáng", text: $brightnessDisplays, placeholder: "1,2")
+                    field("Màn hình chỉnh sáng", text: $brightnessDisplays, placeholder: "để trống = tất cả")
                 }
 
                 cameraSection

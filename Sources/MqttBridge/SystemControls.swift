@@ -67,9 +67,19 @@ struct SystemControls {
     func setBrightness(_ v: Int) {
         let clamped = max(0, min(100, v))
         guard m1ddcAvailable else { return }
-        for d in config.brightnessDisplays {
+        let displays = config.brightnessDisplays.isEmpty ? allDisplayIndices() : config.brightnessDisplays
+        for d in displays {
             runBg(config.m1ddcPath, ["display", String(d), "set", "luminance", String(clamped)])
         }
+    }
+
+    /// All DDC-capable displays as listed by `m1ddc display list` (1-based).
+    /// Used when no specific displays are configured → control every monitor.
+    func allDisplayIndices() -> [Int] {
+        guard m1ddcAvailable else { return [] }
+        let out = run(config.m1ddcPath, ["display", "list"])
+        let count = out.split(separator: "\n").filter { $0.hasPrefix("[") }.count
+        return count > 0 ? Array(1...count) : [1]
     }
 
     // MARK: - Apps
@@ -129,5 +139,105 @@ struct SystemControls {
 
     func sleepDisplay() {
         runBg("/usr/bin/pmset", ["displaysleepnow"])
+    }
+
+    // MARK: - Extra controls
+
+    func notify(_ message: String, title: String = "Home Assistant") {
+        let m = message.replacingOccurrences(of: "\"", with: "'")
+        let t = title.replacingOccurrences(of: "\"", with: "'")
+        _ = run("/usr/bin/osascript", ["-e", "display notification \"\(m)\" with title \"\(t)\""])
+    }
+
+    func say(_ text: String) {
+        runBg("/usr/bin/say", [text])
+    }
+
+    func lockScreen() {
+        runBg("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession",
+              ["-suspend"])
+    }
+
+    // MARK: - System metrics (sensors)
+
+    func cpuPercent() -> Int? {
+        let out = run("/usr/bin/top", ["-l", "2", "-n", "0"])
+        let lines = out.split(separator: "\n").filter { $0.contains("CPU usage") }
+        guard let line = lines.last,
+              let r = line.range(of: #"[0-9.]+% idle"#, options: .regularExpression),
+              let idle = Double(line[r].replacingOccurrences(of: "% idle", with: "")) else { return nil }
+        return max(0, min(100, Int((100 - idle).rounded())))
+    }
+
+    func ramPercent() -> Int? {
+        guard let total = Double(run("/usr/sbin/sysctl", ["-n", "hw.memsize"])), total > 0 else { return nil }
+        let vm = run("/usr/bin/vm_stat", [])
+        var pageSize = 16384.0
+        if let r = vm.range(of: #"page size of (\d+) bytes"#, options: .regularExpression) {
+            pageSize = Double(String(vm[r]).filter { $0.isNumber }) ?? 16384
+        }
+        func pages(_ key: String) -> Double {
+            for line in vm.split(separator: "\n") where line.contains(key) {
+                return Double(line.filter { $0.isNumber }) ?? 0
+            }
+            return 0
+        }
+        let used = (pages("Pages active") + pages("Pages wired down")
+                    + pages("Pages occupied by compressor")) * pageSize
+        return max(0, min(100, Int((used / total * 100).rounded())))
+    }
+
+    func diskPercent() -> Int? {
+        let out = run("/bin/df", ["-k", "/System/Volumes/Data"])
+        guard let line = out.split(separator: "\n").last else { return nil }
+        for c in line.split(separator: " ", omittingEmptySubsequences: true) where c.hasSuffix("%") {
+            return Int(c.dropLast())
+        }
+        return nil
+    }
+
+    func localIP() -> String? {
+        let route = run("/sbin/route", ["-n", "get", "default"])
+        var iface = ""
+        for line in route.split(separator: "\n") where line.contains("interface:") {
+            iface = line.split(separator: ":").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        }
+        let candidates = iface.isEmpty ? ["en0", "en1"] : [iface]
+        for c in candidates {
+            let ip = run("/usr/sbin/ipconfig", ["getifaddr", c])
+            if !ip.isEmpty { return ip }
+        }
+        return nil
+    }
+
+    func wifiRSSI() -> Int? {
+        let out = run("/usr/sbin/system_profiler", ["SPAirPortDataType"])
+        guard out.contains("Current Network Information") else { return nil }
+        for line in out.split(separator: "\n") where line.contains("Signal / Noise") {
+            if let r = line.range(of: #"-?\d+"#, options: .regularExpression) {
+                return Int(line[r])
+            }
+        }
+        return nil
+    }
+
+    func bluetoothOn() -> Bool? {
+        let out = run("/usr/sbin/system_profiler", ["SPBluetoothDataType"])
+        for line in out.split(separator: "\n") where line.contains("State:") || line.contains("Bluetooth Power") {
+            return line.contains("On")
+        }
+        return nil
+    }
+
+    struct Battery { let percent: Int; let charging: Bool }
+
+    func battery() -> Battery? {
+        let out = run("/usr/bin/pmset", ["-g", "batt"])
+        guard out.contains("InternalBattery") else { return nil }
+        var pct = 0
+        if let r = out.range(of: #"\d+%"#, options: .regularExpression) {
+            pct = Int(out[r].dropLast()) ?? 0
+        }
+        return Battery(percent: pct, charging: !out.contains("discharging"))
     }
 }

@@ -20,6 +20,23 @@ App công bố các entity sau lên Home Assistant:
 | Ứng dụng | `select` | Danh sách app cài trên Mac (tự quét) |
 | Mở ứng dụng | `button` | Mở app đang chọn |
 | Màn hình | `switch` | Bật (đánh thức) / tắt màn hình |
+| Thông báo | `text` | Hiện banner thông báo trên Mac |
+| Đọc (TTS) | `text` | Đọc to văn bản qua loa Mac (`say`) |
+| Khoá màn hình | `button` | Khoá màn hình ngay |
+
+Độ sáng để trống danh sách màn hình → tự chỉnh **tất cả** màn hình DDC.
+
+App cũng công bố các **sensor** theo dõi máy (cập nhật ~20s):
+
+| Sensor | Loại | Ghi chú |
+|--------|------|---------|
+| CPU | `sensor` % | Mức dùng CPU |
+| RAM | `sensor` % | Bộ nhớ đã dùng |
+| Ổ đĩa | `sensor` % | Dung lượng đã dùng (volume Data) |
+| IP local | `sensor` | Địa chỉ IP LAN |
+| WiFi | `sensor` dBm | Cường độ sóng (ẩn nếu dùng Ethernet) |
+| Bluetooth | `binary_sensor` | Bật/tắt |
+| Pin / Đang sạc | `sensor` % / `binary_sensor` | **Chỉ hiện nếu máy có pin** (laptop) |
 
 Tất cả gom dưới **một thiết bị** trong HA. Có **màn hình Nhật ký lệnh** ghi lại mọi
 lệnh nhận từ server theo thời gian thực.

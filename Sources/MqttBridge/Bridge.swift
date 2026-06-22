@@ -9,8 +9,12 @@ final class Bridge {
     private let log: (String, Logbook.Level) -> Void
 
     private let queue = DispatchQueue(label: "mqtt.bridge")
+    private let sensorQueue = DispatchQueue(label: "mqtt.sensors")
     private var pollTimer: DispatchSourceTimer?
     private var appsTimer: DispatchSourceTimer?
+    private var sensorTimer: DispatchSourceTimer?
+    private var hasBattery = false
+    private var publishedCount = 0
 
     // Entity state
     private var selectedCamera: String = ""
@@ -42,13 +46,14 @@ final class Bridge {
             self.appList = self.controls.listApps()
             if self.selectedApp.isEmpty { self.selectedApp = self.appList.first ?? "" }
             self.brightness = self.initialBrightness()
+            self.hasBattery = self.controls.battery() != nil
 
             self.client.publish(self.availabilityTopic, "online", qos: 1, retain: true)
             self.publishDiscovery()
             self.subscribeCommands()
             self.publishAllStates()
             self.startTimers()
-            self.log("Đã publish \(self.entityCount) entity discovery + subscribe lệnh", .info)
+            self.log("Đã publish \(self.publishedCount) entity discovery + subscribe lệnh", .info)
         }
     }
 
@@ -108,6 +113,12 @@ final class Bridge {
             if payload == "ON" { controls.wakeDisplay() } else { controls.sleepDisplay() }
             client.publish("\(base)/display", payload, retain: true)
             log("display → \(payload)", .action)
+        case "notify/set":
+            if !payload.isEmpty { controls.notify(payload); log("notify: \(payload)", .action) }
+        case "say/set":
+            if !payload.isEmpty { controls.say(payload); log("say: \(payload)", .action) }
+        case "lock/press":
+            controls.lockScreen(); log("khoá màn hình", .action)
         default:
             log("lệnh không rõ: \(topic)", .warn)
         }
@@ -148,12 +159,35 @@ final class Bridge {
         at.schedule(deadline: .now() + 300, repeating: 300)
         at.setEventHandler { [weak self] in self?.refreshApps() }
         appsTimer = at; at.resume()
+
+        // System metrics every 20s on a dedicated queue (some reads block ~1-2s).
+        sensorTimer?.cancel()
+        let st = DispatchSource.makeTimerSource(queue: sensorQueue)
+        st.schedule(deadline: .now() + 1, repeating: 20)
+        st.setEventHandler { [weak self] in self?.publishSensors() }
+        sensorTimer = st; st.resume()
     }
 
     func stopTimers() {
         queue.async { [weak self] in
             self?.pollTimer?.cancel(); self?.pollTimer = nil
             self?.appsTimer?.cancel(); self?.appsTimer = nil
+        }
+        sensorQueue.async { [weak self] in
+            self?.sensorTimer?.cancel(); self?.sensorTimer = nil
+        }
+    }
+
+    private func publishSensors() {
+        if let v = controls.cpuPercent() { client.publish("\(base)/cpu", String(v), retain: true) }
+        if let v = controls.ramPercent() { client.publish("\(base)/ram", String(v), retain: true) }
+        if let v = controls.diskPercent() { client.publish("\(base)/disk", String(v), retain: true) }
+        if let v = controls.localIP() { client.publish("\(base)/ip", v, retain: true) }
+        if let v = controls.wifiRSSI() { client.publish("\(base)/wifi", String(v), retain: true) }
+        if let v = controls.bluetoothOn() { client.publish("\(base)/bluetooth", v ? "ON" : "OFF", retain: true) }
+        if hasBattery, let b = controls.battery() {
+            client.publish("\(base)/battery", String(b.percent), retain: true)
+            client.publish("\(base)/charging", b.charging ? "ON" : "OFF", retain: true)
         }
     }
 
@@ -181,14 +215,13 @@ final class Bridge {
 
     // MARK: - Discovery
 
-    private let entityCount = 10
-
     private func subscribeCommands() {
         client.subscribe([
             "\(base)/volume/set", "\(base)/mute/set", "\(base)/brightness/set",
             "\(base)/camera/set", "\(base)/cast/press", "\(base)/stop_cast/press",
             "\(base)/cast_url/set", "\(base)/app/set", "\(base)/open_app/press",
-            "\(base)/display/set",
+            "\(base)/display/set", "\(base)/notify/set", "\(base)/say/set",
+            "\(base)/lock/press",
         ], qos: 1)
     }
 
@@ -217,9 +250,11 @@ final class Bridge {
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8) else { return }
         client.publish(topic, json, qos: 1, retain: true)
+        publishedCount += 1
     }
 
     private func publishDiscovery() {
+        publishedCount = 0
         publish(discovery: "number", "volume", [
             "name": "Âm lượng", "icon": "mdi:volume-high",
             "command_topic": "\(base)/volume/set", "state_topic": "\(base)/volume",
@@ -263,6 +298,57 @@ final class Bridge {
             "command_topic": "\(base)/display/set", "state_topic": "\(base)/display",
             "payload_on": "ON", "payload_off": "OFF",
         ])
+
+        // Extra controls
+        publish(discovery: "text", "notify", [
+            "name": "Thông báo", "icon": "mdi:bell",
+            "command_topic": "\(base)/notify/set", "min": 0, "max": 255, "mode": "text",
+        ])
+        publish(discovery: "text", "say", [
+            "name": "Đọc (TTS)", "icon": "mdi:bullhorn",
+            "command_topic": "\(base)/say/set", "min": 0, "max": 255, "mode": "text",
+        ])
+        publish(discovery: "button", "lock", [
+            "name": "Khoá màn hình", "icon": "mdi:lock",
+            "command_topic": "\(base)/lock/press",
+        ])
+
+        // Sensors
+        publish(discovery: "sensor", "cpu", [
+            "name": "CPU", "icon": "mdi:cpu-64-bit", "state_topic": "\(base)/cpu",
+            "unit_of_measurement": "%", "state_class": "measurement",
+        ])
+        publish(discovery: "sensor", "ram", [
+            "name": "RAM", "icon": "mdi:memory", "state_topic": "\(base)/ram",
+            "unit_of_measurement": "%", "state_class": "measurement",
+        ])
+        publish(discovery: "sensor", "disk", [
+            "name": "Ổ đĩa", "icon": "mdi:harddisk", "state_topic": "\(base)/disk",
+            "unit_of_measurement": "%", "state_class": "measurement",
+        ])
+        publish(discovery: "sensor", "ip", [
+            "name": "IP local", "icon": "mdi:ip-network", "state_topic": "\(base)/ip",
+        ])
+        publish(discovery: "sensor", "wifi", [
+            "name": "WiFi", "icon": "mdi:wifi", "state_topic": "\(base)/wifi",
+            "unit_of_measurement": "dBm", "device_class": "signal_strength",
+            "state_class": "measurement",
+        ])
+        publish(discovery: "binary_sensor", "bluetooth", [
+            "name": "Bluetooth", "icon": "mdi:bluetooth", "state_topic": "\(base)/bluetooth",
+            "payload_on": "ON", "payload_off": "OFF",
+        ])
+        if hasBattery {
+            publish(discovery: "sensor", "battery", [
+                "name": "Pin", "state_topic": "\(base)/battery",
+                "unit_of_measurement": "%", "device_class": "battery",
+                "state_class": "measurement",
+            ])
+            publish(discovery: "binary_sensor", "charging", [
+                "name": "Đang sạc", "state_topic": "\(base)/charging",
+                "device_class": "battery_charging", "payload_on": "ON", "payload_off": "OFF",
+            ])
+        }
     }
 
     private func publishAppSelectDiscovery() {
