@@ -6,7 +6,7 @@ import AppKit
 final class AppState: ObservableObject {
     @Published var config: Config
     @Published var isConnected: Bool = false
-    @Published var statusText: String = "Chưa kết nối"
+    @Published var statusText: String = "Not connected"
 
     let logbook = Logbook()
 
@@ -25,8 +25,8 @@ final class AppState: ObservableObject {
         stop()
         let cfg = config
         guard !cfg.host.isEmpty else {
-            statusText = "Thiếu địa chỉ broker — mở Cấu hình"
-            logbook.add("Chưa cấu hình broker MQTT", level: .warn)
+            statusText = "Missing broker address — open Settings"
+            logbook.add("MQTT broker not configured", level: .warn)
             return
         }
         let opts = MQTTClient.Options(
@@ -54,14 +54,14 @@ final class AppState: ObservableObject {
                 switch st {
                 case .connected:
                     self.isConnected = true
-                    self.statusText = "Đã kết nối \(cfg.host)"
+                    self.statusText = "Connected to \(cfg.host)"
                     b.onConnected()
                 case .connecting:
                     self.isConnected = false
-                    self.statusText = "Đang kết nối…"
+                    self.statusText = "Connecting…"
                 case .disconnected:
                     self.isConnected = false
-                    self.statusText = "Mất kết nối"
+                    self.statusText = "Disconnected"
                 }
             }
         }
@@ -71,7 +71,7 @@ final class AppState: ObservableObject {
         }
         self.client = c
         self.bridge = b
-        logbook.add("Khởi động, kết nối tới \(cfg.host):\(cfg.port)…", level: .info)
+        logbook.add("Starting, connecting to \(cfg.host):\(cfg.port)…", level: .info)
         c.start()
     }
 
@@ -88,7 +88,7 @@ final class AppState: ObservableObject {
     func save(_ newConfig: Config) {
         config = newConfig
         config.save()
-        logbook.add("Đã lưu cấu hình, kết nối lại…", level: .info)
+        logbook.add("Settings saved, reconnecting…", level: .info)
         restart()
     }
 }

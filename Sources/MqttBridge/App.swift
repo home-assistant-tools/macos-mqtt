@@ -27,12 +27,12 @@ struct MqttBridgeApp: App {
                   : "antenna.radiowaves.left.and.right.slash")
         }
 
-        Window("Cấu hình MQTT", id: "settings") {
+        Window("MQTT Settings", id: "settings") {
             SettingsView(state: state)
         }
         .windowResizability(.contentSize)
 
-        Window("Nhật ký lệnh", id: "log") {
+        Window("Command Log", id: "log") {
             LogView(logbook: state.logbook)
         }
     }
@@ -45,16 +45,16 @@ struct MenuContent: View {
     var body: some View {
         Text(state.statusText)
         Divider()
-        Button("Cấu hình MQTT…") { open("settings") }
-        Button("Nhật ký lệnh…") { open("log") }
-        Button("Kết nối lại") { state.restart() }
+        Button("MQTT Settings…") { open("settings") }
+        Button("Command Log…") { open("log") }
+        Button("Reconnect") { state.restart() }
         Divider()
-        Button(LoginItem.isEnabled ? "✓ Mở khi đăng nhập" : "Mở khi đăng nhập") {
+        Button(LoginItem.isEnabled ? "✓ Open at Login" : "Open at Login") {
             LoginItem.toggle()
         }
         Divider()
         Text("macos-mqtt v\(state.version)")
-        Button("Thoát") { NSApplication.shared.terminate(nil) }
+        Button("Quit") { NSApplication.shared.terminate(nil) }
     }
 
     private func open(_ id: String) {

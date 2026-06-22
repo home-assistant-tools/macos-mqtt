@@ -12,7 +12,8 @@ struct SettingsView: View {
     @State private var discoveryPrefix = "homeassistant"
     @State private var vlcPath = ""
     @State private var m1ddcPath = ""
-    @State private var brightnessDisplays = "1"
+    @State private var nowplayingPath = ""
+    @State private var brightnessDisplays = ""
     @State private var cameras: [Camera] = []
     @State private var saved = false
 
@@ -21,32 +22,33 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 statusBanner
 
-                group("Broker MQTT") {
-                    field("Địa chỉ", text: $host, placeholder: "192.168.1.10")
-                    field("Cổng", text: $port, placeholder: "1883")
+                group("MQTT Broker") {
+                    field("Address", text: $host, placeholder: "192.168.1.10")
+                    field("Port", text: $port, placeholder: "1883")
                     field("Username", text: $username)
                     secureField("Password", text: $password)
                 }
 
-                group("Thiết bị") {
+                group("Device") {
                     field("Node ID", text: $nodeId, placeholder: "mac")
-                    field("Tên hiển thị", text: $deviceName, placeholder: "Mac mini")
+                    field("Display name", text: $deviceName, placeholder: "Mac mini")
                     field("Discovery prefix", text: $discoveryPrefix)
                 }
 
-                group("Công cụ ngoài") {
-                    field("Đường dẫn VLC", text: $vlcPath)
-                    field("Đường dẫn m1ddc", text: $m1ddcPath)
-                    field("Màn hình chỉnh sáng", text: $brightnessDisplays, placeholder: "để trống = tất cả")
+                group("External tools") {
+                    field("VLC path", text: $vlcPath)
+                    field("m1ddc path", text: $m1ddcPath)
+                    field("nowplaying-cli path", text: $nowplayingPath)
+                    field("Brightness displays", text: $brightnessDisplays, placeholder: "blank = all")
                 }
 
                 cameraSection
 
                 HStack {
-                    Button("Lưu & kết nối lại") { saveAll() }
+                    Button("Save & reconnect") { saveAll() }
                         .keyboardShortcut(.defaultAction)
                     if saved {
-                        Label("Đã lưu", systemImage: "checkmark.circle.fill")
+                        Label("Saved", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     }
                     Spacer()
@@ -70,7 +72,7 @@ struct SettingsView: View {
     private var cameraSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Camera (RTSP)").font(.headline)
+                Text("Cameras (RTSP)").font(.headline)
                 Spacer()
                 Button {
                     cameras.append(Camera(name: "Camera \(cameras.count + 1)", url: "rtsp://"))
@@ -78,7 +80,7 @@ struct SettingsView: View {
             }
             ForEach($cameras) { $cam in
                 HStack {
-                    TextField("Tên", text: $cam.name).frame(width: 120)
+                    TextField("Name", text: $cam.name).frame(width: 120)
                     TextField("rtsp://…", text: $cam.url)
                     Button(role: .destructive) {
                         cameras.removeAll { $0.id == cam.id }
@@ -86,12 +88,10 @@ struct SettingsView: View {
                 }
             }
             if cameras.isEmpty {
-                Text("Chưa có camera nào").font(.caption).foregroundStyle(.secondary)
+                Text("No cameras yet").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
-
-    // MARK: - Helpers
 
     private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -102,14 +102,14 @@ struct SettingsView: View {
 
     private func field(_ label: String, text: Binding<String>, placeholder: String = "") -> some View {
         HStack {
-            Text(label).frame(width: 140, alignment: .leading).foregroundStyle(.secondary)
+            Text(label).frame(width: 150, alignment: .leading).foregroundStyle(.secondary)
             TextField(placeholder, text: text).textFieldStyle(.roundedBorder)
         }
     }
 
     private func secureField(_ label: String, text: Binding<String>) -> some View {
         HStack {
-            Text(label).frame(width: 140, alignment: .leading).foregroundStyle(.secondary)
+            Text(label).frame(width: 150, alignment: .leading).foregroundStyle(.secondary)
             SecureField("", text: text).textFieldStyle(.roundedBorder)
         }
     }
@@ -125,6 +125,7 @@ struct SettingsView: View {
         discoveryPrefix = c.discoveryPrefix
         vlcPath = c.vlcPath
         m1ddcPath = c.m1ddcPath
+        nowplayingPath = c.nowplayingPath
         brightnessDisplays = c.brightnessDisplays.map(String.init).joined(separator: ",")
         cameras = c.cameras
     }
@@ -135,11 +136,13 @@ struct SettingsView: View {
         c.port = Int(port) ?? 1883
         c.username = username
         c.password = password
-        c.nodeId = nodeId.trimmingCharacters(in: .whitespaces).isEmpty ? "mac" : nodeId.trimmingCharacters(in: .whitespaces)
+        let trimmedNode = nodeId.trimmingCharacters(in: .whitespaces)
+        c.nodeId = trimmedNode.isEmpty ? "mac" : trimmedNode
         c.deviceName = deviceName
         c.discoveryPrefix = discoveryPrefix.isEmpty ? "homeassistant" : discoveryPrefix
         c.vlcPath = vlcPath
         c.m1ddcPath = m1ddcPath
+        c.nowplayingPath = nowplayingPath
         c.brightnessDisplays = brightnessDisplays
             .split(separator: ",")
             .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }

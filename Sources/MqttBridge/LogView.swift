@@ -30,10 +30,10 @@ struct LogView: View {
 
     private var toolbar: some View {
         HStack {
-            Toggle("Tự cuộn", isOn: $autoScroll).toggleStyle(.checkbox)
+            Toggle("Auto-scroll", isOn: $autoScroll).toggleStyle(.checkbox)
             Spacer()
-            Text("\(logbook.entries.count) dòng").font(.caption).foregroundStyle(.secondary)
-            Button("Xoá") { logbook.clear() }
+            Text("\(logbook.entries.count) lines").font(.caption).foregroundStyle(.secondary)
+            Button("Clear") { logbook.clear() }
         }
         .padding(8)
     }

@@ -17,6 +17,7 @@ struct Config: Codable {
 
     var vlcPath: String = "/Applications/VLC.app/Contents/MacOS/VLC"
     var m1ddcPath: String = "/opt/homebrew/bin/m1ddc"
+    var nowplayingPath: String = "/opt/homebrew/bin/nowplaying-cli"
     /// Empty = control all DDC displays automatically.
     var brightnessDisplays: [Int] = []
 
@@ -51,6 +52,28 @@ struct Config: Codable {
         try? data.write(to: Config.fileURL, options: .atomic)
         // Tighten permissions since the broker password is stored here.
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Config.fileURL.path)
+    }
+}
+
+// Tolerant decoding: missing keys fall back to defaults so adding new fields
+// in a future version never wipes an existing config.json.
+extension Config {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var cfg = Config()
+        cfg.host = try c.decodeIfPresent(String.self, forKey: .host) ?? cfg.host
+        cfg.port = try c.decodeIfPresent(Int.self, forKey: .port) ?? cfg.port
+        cfg.username = try c.decodeIfPresent(String.self, forKey: .username) ?? cfg.username
+        cfg.password = try c.decodeIfPresent(String.self, forKey: .password) ?? cfg.password
+        cfg.nodeId = try c.decodeIfPresent(String.self, forKey: .nodeId) ?? cfg.nodeId
+        cfg.deviceName = try c.decodeIfPresent(String.self, forKey: .deviceName) ?? cfg.deviceName
+        cfg.discoveryPrefix = try c.decodeIfPresent(String.self, forKey: .discoveryPrefix) ?? cfg.discoveryPrefix
+        cfg.vlcPath = try c.decodeIfPresent(String.self, forKey: .vlcPath) ?? cfg.vlcPath
+        cfg.m1ddcPath = try c.decodeIfPresent(String.self, forKey: .m1ddcPath) ?? cfg.m1ddcPath
+        cfg.nowplayingPath = try c.decodeIfPresent(String.self, forKey: .nowplayingPath) ?? cfg.nowplayingPath
+        cfg.brightnessDisplays = try c.decodeIfPresent([Int].self, forKey: .brightnessDisplays) ?? cfg.brightnessDisplays
+        cfg.cameras = try c.decodeIfPresent([Camera].self, forKey: .cameras) ?? cfg.cameras
+        self = cfg
     }
 }
 

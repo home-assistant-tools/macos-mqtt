@@ -17,14 +17,17 @@ final class Bridge {
     private var publishedCount = 0
 
     // Entity state
-    private var selectedCamera: String = ""
-    private var selectedApp: String = ""
-    private var selectedShortcut: String = ""
-    private var brightness: Int = 50
-    private var lastVolume: Int = -1
+    private var selectedCamera = ""
+    private var selectedApp = ""
+    private var selectedShortcut = ""
+    private var selectedAudioOutput = ""
+    private var brightness = 50
+    private var lastVolume = -1
     private var lastMuted: Bool?
+    private var lastDisplayOn: Bool?
     private var appList: [String] = []
     private var shortcutList: [String] = []
+    private var audioDevices: [String] = []
     private var caffeinate: Process?
 
     private let appVersion: String
@@ -42,15 +45,18 @@ final class Bridge {
         self.selectedCamera = config.cameras.first?.name ?? ""
     }
 
-    // Called by AppState when MQTT becomes connected.
+    // MARK: - Lifecycle
+
     func onConnected() {
         queue.async { [weak self] in
             guard let self else { return }
             self.appList = self.controls.listApps()
-            if self.selectedApp.isEmpty { self.selectedApp = self.appList.first ?? "" }
             self.shortcutList = self.controls.listShortcuts()
+            self.audioDevices = AudioControls.outputDevices()
+            if self.selectedApp.isEmpty { self.selectedApp = self.appList.first ?? "" }
             if self.selectedShortcut.isEmpty { self.selectedShortcut = self.shortcutList.first ?? "" }
-            self.brightness = self.initialBrightness()
+            self.selectedAudioOutput = AudioControls.currentOutput() ?? self.audioDevices.first ?? ""
+            self.brightness = 50
             self.hasBattery = self.controls.battery() != nil
 
             self.client.publish(self.availabilityTopic, "online", qos: 1, retain: true)
@@ -59,14 +65,12 @@ final class Bridge {
             self.subscribeCommands()
             self.publishAllStates()
             self.startTimers()
-            self.log("Đã publish \(self.publishedCount) entity discovery + subscribe lệnh", .info)
+            self.log("Published \(self.publishedCount) discovery entities, subscribed to commands", .info)
         }
     }
 
     func handle(topic: String, payload: String) {
-        queue.async { [weak self] in
-            self?.route(topic: topic, payload: payload)
-        }
+        queue.async { [weak self] in self?.route(topic: topic, payload: payload) }
     }
 
     // MARK: - Command routing
@@ -88,60 +92,72 @@ final class Bridge {
             let v = Int(payload) ?? brightness
             controls.setBrightness(v); brightness = v
             client.publish("\(base)/brightness", String(v), retain: true)
-            log(controls.m1ddcAvailable ? "brightness → \(v)" : "brightness \(v) (m1ddc chưa cài)",
+            log(controls.m1ddcAvailable ? "brightness → \(v)" : "brightness \(v) (m1ddc not installed)",
                 controls.m1ddcAvailable ? .action : .warn)
         case "camera/set":
             selectedCamera = payload
             client.publish("\(base)/camera", payload, retain: true)
-            log("camera chọn → \(payload)", .action)
+            log("camera → \(payload)", .action)
         case "cast/press":
             castSelected()
         case "stop_cast/press":
-            controls.stopCast()
-            log("dừng cast", .action)
+            controls.stopCast(); log("stop cast", .action)
         case "cast_url/set":
             if !payload.isEmpty {
                 controls.cast(url: payload)
-                client.publish("\(base)/cast_url", payload, retain: true)
-                log(controls.vlcAvailable ? "cast url → \(payload)" : "cast url (VLC chưa cài)",
+                log(controls.vlcAvailable ? "cast url → \(payload)" : "cast url (VLC not installed)",
                     controls.vlcAvailable ? .action : .warn)
             }
+            client.publish("\(base)/cast_url", "", retain: true)
         case "app/set":
             selectedApp = payload
             controls.openApp(payload)
             client.publish("\(base)/app", payload, retain: true)
-            log("mở app → \(payload)", .action)
+            log("open app → \(payload)", .action)
         case "display/set":
             if payload == "ON" { controls.wakeDisplay() } else { controls.sleepDisplay() }
-            client.publish("\(base)/display", payload, retain: true)
             log("display → \(payload)", .action)
         case "notify/set":
             if !payload.isEmpty { controls.notify(payload); log("notify: \(payload)", .action) }
+            client.publish("\(base)/notify", "", retain: true)
         case "say/set":
-            if !payload.isEmpty { controls.say(payload); log("say: \(payload)", .action) }
+            if !payload.isEmpty { controls.say(payload); log("speak: \(payload)", .action) }
+            client.publish("\(base)/say", "", retain: true)
         case "lock/press":
-            controls.lockScreen(); log("khoá màn hình", .action)
+            controls.lockScreen(); log("lock screen", .action)
         case "shortcut/set":
             selectedShortcut = payload
             controls.runShortcut(payload)
             client.publish("\(base)/shortcut", payload, retain: true)
-            log("chạy shortcut → \(payload)", .action)
+            log("run shortcut → \(payload)", .action)
         case "open_url/set":
-            if !payload.isEmpty { controls.openURL(payload); log("mở URL: \(payload)", .action) }
+            if !payload.isEmpty { controls.openURL(payload); log("open url: \(payload)", .action) }
+            client.publish("\(base)/open_url", "", retain: true)
         case "sleep/press":
-            controls.sleepNow(); log("ngủ máy", .action)
+            controls.sleepNow(); log("sleep", .action)
         case "caffeinate/set":
             setCaffeinate(payload == "ON")
+        case "media_playpause/press":
+            controls.mediaPlayPause(); log("media play/pause", .action)
+        case "media_next/press":
+            controls.mediaNext(); log("media next", .action)
+        case "media_previous/press":
+            controls.mediaPrevious(); log("media previous", .action)
+        case "audio_output/set":
+            selectedAudioOutput = payload
+            AudioControls.setOutput(payload)
+            client.publish("\(base)/audio_output", payload, retain: true)
+            log("audio output → \(payload)", .action)
         default:
-            log("lệnh không rõ: \(topic)", .warn)
+            log("unknown command: \(topic)", .warn)
         }
     }
 
     private func castSelected() {
         let cam = cfg.cameras.first { $0.name == selectedCamera } ?? cfg.cameras.first
-        guard let cam else { log("cast: chưa cấu hình camera", .warn); return }
+        guard let cam else { log("cast: no camera configured", .warn); return }
         controls.cast(url: cam.url)
-        log(controls.vlcAvailable ? "cast \(cam.name)" : "cast \(cam.name) (VLC chưa cài)",
+        log(controls.vlcAvailable ? "cast \(cam.name)" : "cast \(cam.name) (VLC not installed)",
             controls.vlcAvailable ? .action : .warn)
     }
 
@@ -150,49 +166,51 @@ final class Bridge {
             if caffeinate?.isRunning == true { return }
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
-            p.arguments = ["-dimsu"] // prevent display + system sleep
+            p.arguments = ["-dimsu"]
             try? p.run()
             caffeinate = p
-            log("ngăn ngủ: BẬT", .action)
+            log("keep awake: ON", .action)
         } else {
-            caffeinate?.terminate()
-            caffeinate = nil
-            log("ngăn ngủ: TẮT", .action)
+            caffeinate?.terminate(); caffeinate = nil
+            log("keep awake: OFF", .action)
         }
         client.publish("\(base)/caffeinate", on ? "ON" : "OFF", retain: true)
     }
 
-    // MARK: - State publishing
+    // MARK: - State
 
     private func publishAllStates() {
         let v = controls.getVolume(); lastVolume = v
         let m = controls.getMuted(); lastMuted = m
+        let displayOn = !controls.displayAsleep(); lastDisplayOn = displayOn
         client.publish("\(base)/volume", String(v), retain: true)
         client.publish("\(base)/mute", m ? "ON" : "OFF", retain: true)
         client.publish("\(base)/brightness", String(brightness), retain: true)
         client.publish("\(base)/camera", selectedCamera, retain: true)
         client.publish("\(base)/app", selectedApp, retain: true)
         client.publish("\(base)/shortcut", selectedShortcut, retain: true)
-        client.publish("\(base)/display", "ON", retain: true)
+        client.publish("\(base)/audio_output", selectedAudioOutput, retain: true)
+        client.publish("\(base)/display", displayOn ? "ON" : "OFF", retain: true)
         client.publish("\(base)/caffeinate", caffeinate?.isRunning == true ? "ON" : "OFF", retain: true)
+        // Text inputs start empty (avoid "unknown").
+        for obj in ["cast_url", "notify", "say", "open_url"] {
+            client.publish("\(base)/\(obj)", "", retain: true)
+        }
     }
 
     private func startTimers() {
-        // Sync volume/mute back to HA every 10s (reflect manual changes).
         pollTimer?.cancel()
         let pt = DispatchSource.makeTimerSource(queue: queue)
-        pt.schedule(deadline: .now() + 10, repeating: 10)
-        pt.setEventHandler { [weak self] in self?.pollVolume() }
+        pt.schedule(deadline: .now() + 5, repeating: 5)
+        pt.setEventHandler { [weak self] in self?.pollFast() }
         pollTimer = pt; pt.resume()
 
-        // Rescan installed apps every 5 minutes; republish if changed.
         appsTimer?.cancel()
         let at = DispatchSource.makeTimerSource(queue: queue)
         at.schedule(deadline: .now() + 300, repeating: 300)
-        at.setEventHandler { [weak self] in self?.refreshApps() }
+        at.setEventHandler { [weak self] in self?.refreshLists() }
         appsTimer = at; at.resume()
 
-        // System metrics every 20s on a dedicated queue (some reads block ~1-2s).
         sensorTimer?.cancel()
         let st = DispatchSource.makeTimerSource(queue: sensorQueue)
         st.schedule(deadline: .now() + 1, repeating: 20)
@@ -211,6 +229,28 @@ final class Bridge {
         }
     }
 
+    /// Volume, mute and display power synced to HA (reflect manual changes).
+    private func pollFast() {
+        let v = controls.getVolume()
+        let m = controls.getMuted()
+        let displayOn = !controls.displayAsleep()
+        if v != lastVolume { lastVolume = v; client.publish("\(base)/volume", String(v), retain: true) }
+        if m != lastMuted { lastMuted = m; client.publish("\(base)/mute", m ? "ON" : "OFF", retain: true) }
+        if displayOn != lastDisplayOn {
+            lastDisplayOn = displayOn
+            client.publish("\(base)/display", displayOn ? "ON" : "OFF", retain: true)
+        }
+    }
+
+    private func refreshLists() {
+        let apps = controls.listApps()
+        if apps != appList { appList = apps; publishAppSelectDiscovery() }
+        let shortcuts = controls.listShortcuts()
+        if shortcuts != shortcutList { shortcutList = shortcuts; publishShortcutSelectDiscovery() }
+        let devs = AudioControls.outputDevices()
+        if devs != audioDevices { audioDevices = devs; publishAudioOutputDiscovery() }
+    }
+
     private func publishSensors() {
         if let v = controls.cpuPercent() { client.publish("\(base)/cpu", String(v), retain: true) }
         if let v = controls.ramPercent() { client.publish("\(base)/ram", String(v), retain: true) }
@@ -220,32 +260,12 @@ final class Bridge {
         if let v = controls.bluetoothOn() { client.publish("\(base)/bluetooth", v ? "ON" : "OFF", retain: true) }
         if let v = controls.uptimeString() { client.publish("\(base)/uptime", v, retain: true) }
         if let v = controls.diskFreeGB() { client.publish("\(base)/disk_free", String(v), retain: true) }
+        client.publish("\(base)/now_playing", controls.nowPlaying(), retain: true)
+        client.publish("\(base)/audio_app", controls.audioApps(), retain: true)
         if hasBattery, let b = controls.battery() {
             client.publish("\(base)/battery", String(b.percent), retain: true)
             client.publish("\(base)/charging", b.charging ? "ON" : "OFF", retain: true)
         }
-    }
-
-    private func pollVolume() {
-        let v = controls.getVolume()
-        let m = controls.getMuted()
-        if v != lastVolume { lastVolume = v; client.publish("\(base)/volume", String(v), retain: true) }
-        if m != lastMuted { lastMuted = m; client.publish("\(base)/mute", m ? "ON" : "OFF", retain: true) }
-    }
-
-    private func refreshApps() {
-        let fresh = controls.listApps()
-        if fresh != appList {
-            appList = fresh
-            publishAppSelectDiscovery()
-            log("Cập nhật danh sách app (\(fresh.count))", .info)
-        }
-    }
-
-    private func initialBrightness() -> Int {
-        guard controls.m1ddcAvailable else { return 50 }
-        // DDC reads are unreliable; sanitize and fall back to 50.
-        return 50
     }
 
     // MARK: - Discovery
@@ -254,10 +274,12 @@ final class Bridge {
         client.subscribe([
             "\(base)/volume/set", "\(base)/mute/set", "\(base)/brightness/set",
             "\(base)/camera/set", "\(base)/cast/press", "\(base)/stop_cast/press",
-            "\(base)/cast_url/set", "\(base)/app/set",
-            "\(base)/display/set", "\(base)/notify/set", "\(base)/say/set",
-            "\(base)/lock/press", "\(base)/shortcut/set",
-            "\(base)/open_url/set", "\(base)/sleep/press", "\(base)/caffeinate/set",
+            "\(base)/cast_url/set", "\(base)/app/set", "\(base)/display/set",
+            "\(base)/notify/set", "\(base)/say/set", "\(base)/lock/press",
+            "\(base)/shortcut/set", "\(base)/open_url/set", "\(base)/sleep/press",
+            "\(base)/caffeinate/set", "\(base)/media_playpause/press",
+            "\(base)/media_next/press", "\(base)/media_previous/press",
+            "\(base)/audio_output/set",
         ], qos: 1)
     }
 
@@ -292,17 +314,17 @@ final class Bridge {
     private func publishDiscovery() {
         publishedCount = 0
         publish(discovery: "number", "volume", [
-            "name": "Âm lượng", "icon": "mdi:volume-high",
+            "name": "Volume", "icon": "mdi:volume-high",
             "command_topic": "\(base)/volume/set", "state_topic": "\(base)/volume",
             "min": 0, "max": 100, "step": 1, "mode": "slider", "unit_of_measurement": "%",
         ])
         publish(discovery: "switch", "mute", [
-            "name": "Tắt tiếng", "icon": "mdi:volume-mute",
+            "name": "Mute", "icon": "mdi:volume-mute",
             "command_topic": "\(base)/mute/set", "state_topic": "\(base)/mute",
             "payload_on": "ON", "payload_off": "OFF",
         ])
         publish(discovery: "number", "brightness", [
-            "name": "Độ sáng", "icon": "mdi:brightness-6",
+            "name": "Brightness", "icon": "mdi:brightness-6",
             "command_topic": "\(base)/brightness/set", "state_topic": "\(base)/brightness",
             "min": 0, "max": 100, "step": 1, "mode": "slider", "unit_of_measurement": "%",
         ])
@@ -312,12 +334,10 @@ final class Bridge {
             "options": cfg.cameras.isEmpty ? ["—"] : cfg.cameras.map { $0.name },
         ])
         publish(discovery: "button", "cast", [
-            "name": "Cast camera", "icon": "mdi:cast",
-            "command_topic": "\(base)/cast/press",
+            "name": "Cast camera", "icon": "mdi:cast", "command_topic": "\(base)/cast/press",
         ])
         publish(discovery: "button", "stop_cast", [
-            "name": "Dừng cast", "icon": "mdi:cast-off",
-            "command_topic": "\(base)/stop_cast/press",
+            "name": "Stop cast", "icon": "mdi:cast-off", "command_topic": "\(base)/stop_cast/press",
         ])
         publish(discovery: "text", "cast_url", [
             "name": "Cast URL", "icon": "mdi:link-variant",
@@ -326,42 +346,51 @@ final class Bridge {
         ])
         publishAppSelectDiscovery()
         publish(discovery: "switch", "display", [
-            "name": "Màn hình", "icon": "mdi:monitor",
+            "name": "Display", "icon": "mdi:monitor",
             "command_topic": "\(base)/display/set", "state_topic": "\(base)/display",
             "payload_on": "ON", "payload_off": "OFF",
         ])
-
-        // Extra controls
         publish(discovery: "text", "notify", [
-            "name": "Thông báo", "icon": "mdi:bell",
-            "command_topic": "\(base)/notify/set", "min": 0, "max": 255, "mode": "text",
+            "name": "Notification", "icon": "mdi:bell",
+            "command_topic": "\(base)/notify/set", "state_topic": "\(base)/notify",
+            "min": 0, "max": 255, "mode": "text",
         ])
         publish(discovery: "text", "say", [
-            "name": "Đọc (TTS)", "icon": "mdi:bullhorn",
-            "command_topic": "\(base)/say/set", "min": 0, "max": 255, "mode": "text",
+            "name": "Speak", "icon": "mdi:bullhorn",
+            "command_topic": "\(base)/say/set", "state_topic": "\(base)/say",
+            "min": 0, "max": 255, "mode": "text",
         ])
         publish(discovery: "button", "lock", [
-            "name": "Khoá màn hình", "icon": "mdi:lock",
-            "command_topic": "\(base)/lock/press",
+            "name": "Lock screen", "icon": "mdi:lock", "command_topic": "\(base)/lock/press",
         ])
-        publish(discovery: "select", "shortcut", [
-            "name": "Chạy Shortcut", "icon": "mdi:apple",
-            "command_topic": "\(base)/shortcut/set", "state_topic": "\(base)/shortcut",
-            "options": shortcutList.isEmpty ? ["—"] : shortcutList,
-        ])
+        publishShortcutSelectDiscovery()
         publish(discovery: "switch", "caffeinate", [
-            "name": "Ngăn ngủ", "icon": "mdi:coffee",
+            "name": "Keep awake", "icon": "mdi:coffee",
             "command_topic": "\(base)/caffeinate/set", "state_topic": "\(base)/caffeinate",
             "payload_on": "ON", "payload_off": "OFF",
         ])
         publish(discovery: "text", "open_url", [
-            "name": "Mở URL", "icon": "mdi:web",
-            "command_topic": "\(base)/open_url/set", "min": 0, "max": 255, "mode": "text",
+            "name": "Open URL", "icon": "mdi:web",
+            "command_topic": "\(base)/open_url/set", "state_topic": "\(base)/open_url",
+            "min": 0, "max": 255, "mode": "text",
         ])
         publish(discovery: "button", "sleep", [
-            "name": "Ngủ máy", "icon": "mdi:power-sleep",
-            "command_topic": "\(base)/sleep/press",
+            "name": "Sleep", "icon": "mdi:power-sleep", "command_topic": "\(base)/sleep/press",
         ])
+
+        // Media controls
+        publish(discovery: "button", "media_playpause", [
+            "name": "Play/Pause", "icon": "mdi:play-pause",
+            "command_topic": "\(base)/media_playpause/press",
+        ])
+        publish(discovery: "button", "media_next", [
+            "name": "Next", "icon": "mdi:skip-next", "command_topic": "\(base)/media_next/press",
+        ])
+        publish(discovery: "button", "media_previous", [
+            "name": "Previous", "icon": "mdi:skip-previous",
+            "command_topic": "\(base)/media_previous/press",
+        ])
+        publishAudioOutputDiscovery()
 
         // Sensors
         publish(discovery: "sensor", "cpu", [
@@ -373,11 +402,11 @@ final class Bridge {
             "unit_of_measurement": "%", "state_class": "measurement",
         ])
         publish(discovery: "sensor", "disk", [
-            "name": "Ổ đĩa", "icon": "mdi:harddisk", "state_topic": "\(base)/disk",
+            "name": "Disk", "icon": "mdi:harddisk", "state_topic": "\(base)/disk",
             "unit_of_measurement": "%", "state_class": "measurement",
         ])
         publish(discovery: "sensor", "ip", [
-            "name": "IP local", "icon": "mdi:ip-network", "state_topic": "\(base)/ip",
+            "name": "Local IP", "icon": "mdi:ip-network", "state_topic": "\(base)/ip",
         ])
         publish(discovery: "sensor", "wifi", [
             "name": "WiFi", "icon": "mdi:wifi", "state_topic": "\(base)/wifi",
@@ -392,17 +421,23 @@ final class Bridge {
             "name": "Uptime", "icon": "mdi:timer-outline", "state_topic": "\(base)/uptime",
         ])
         publish(discovery: "sensor", "disk_free", [
-            "name": "Đĩa trống", "icon": "mdi:harddisk", "state_topic": "\(base)/disk_free",
+            "name": "Disk free", "icon": "mdi:harddisk", "state_topic": "\(base)/disk_free",
             "unit_of_measurement": "GB", "state_class": "measurement",
+        ])
+        publish(discovery: "sensor", "now_playing", [
+            "name": "Now playing", "icon": "mdi:music", "state_topic": "\(base)/now_playing",
+        ])
+        publish(discovery: "sensor", "audio_app", [
+            "name": "Audio app", "icon": "mdi:application-cog", "state_topic": "\(base)/audio_app",
         ])
         if hasBattery {
             publish(discovery: "sensor", "battery", [
-                "name": "Pin", "state_topic": "\(base)/battery",
+                "name": "Battery", "state_topic": "\(base)/battery",
                 "unit_of_measurement": "%", "device_class": "battery",
                 "state_class": "measurement",
             ])
             publish(discovery: "binary_sensor", "charging", [
-                "name": "Đang sạc", "state_topic": "\(base)/charging",
+                "name": "Charging", "state_topic": "\(base)/charging",
                 "device_class": "battery_charging", "payload_on": "ON", "payload_off": "OFF",
             ])
         }
@@ -410,9 +445,25 @@ final class Bridge {
 
     private func publishAppSelectDiscovery() {
         publish(discovery: "select", "app", [
-            "name": "Mở ứng dụng", "icon": "mdi:apps",
+            "name": "Open app", "icon": "mdi:apps",
             "command_topic": "\(base)/app/set", "state_topic": "\(base)/app",
             "options": appList.isEmpty ? ["—"] : appList,
+        ])
+    }
+
+    private func publishShortcutSelectDiscovery() {
+        publish(discovery: "select", "shortcut", [
+            "name": "Run shortcut", "icon": "mdi:apple",
+            "command_topic": "\(base)/shortcut/set", "state_topic": "\(base)/shortcut",
+            "options": shortcutList.isEmpty ? ["—"] : shortcutList,
+        ])
+    }
+
+    private func publishAudioOutputDiscovery() {
+        publish(discovery: "select", "audio_output", [
+            "name": "Audio output", "icon": "mdi:speaker",
+            "command_topic": "\(base)/audio_output/set", "state_topic": "\(base)/audio_output",
+            "options": audioDevices.isEmpty ? ["—"] : audioDevices,
         ])
     }
 

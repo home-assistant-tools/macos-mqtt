@@ -83,7 +83,7 @@ final class MQTTClient {
         rxBuffer.removeAll(keepingCapacity: true)
         let host = NWEndpoint.Host(opts.host)
         guard let port = NWEndpoint.Port(rawValue: opts.port) else {
-            onLog?("Cổng MQTT không hợp lệ: \(opts.port)")
+            onLog?("Invalid MQTT port: \(opts.port)")
             return
         }
         let c = NWConnection(host: host, port: port, using: .tcp)
@@ -92,16 +92,16 @@ final class MQTTClient {
             guard let self else { return }
             switch st {
             case .ready:
-                self.onLog?("TCP đã kết nối \(self.opts.host):\(self.opts.port), gửi CONNECT…")
+                self.onLog?("TCP connected \(self.opts.host):\(self.opts.port), sending CONNECT…")
                 self.writeConnect()
                 self.receiveLoop()
             case .failed(let err):
-                self.onLog?("TCP lỗi: \(err.localizedDescription)")
+                self.onLog?("TCP error: \(err.localizedDescription)")
                 self.handleDisconnect()
             case .cancelled:
                 break
             case .waiting(let err):
-                self.onLog?("TCP chờ: \(err.localizedDescription)")
+                self.onLog?("TCP waiting: \(err.localizedDescription)")
             default:
                 break
             }
@@ -125,7 +125,7 @@ final class MQTTClient {
         t.schedule(deadline: .now() + delay)
         t.setEventHandler { [weak self] in
             guard let self, self.shouldRun else { return }
-            self.onLog?("Thử kết nối lại…")
+            self.onLog?("Reconnecting…")
             self.connect()
         }
         reconnectTimer = t
@@ -161,12 +161,12 @@ final class MQTTClient {
                 self.parseBuffer()
             }
             if let error {
-                self.onLog?("Lỗi đọc: \(error.localizedDescription)")
+                self.onLog?("Read error: \(error.localizedDescription)")
                 self.handleDisconnect()
                 return
             }
             if isComplete {
-                self.onLog?("Server đóng kết nối")
+                self.onLog?("Server closed connection")
                 self.handleDisconnect()
                 return
             }
@@ -192,7 +192,7 @@ final class MQTTClient {
                 if byte & 0x80 == 0 { break }
                 multiplier *= 128
                 if encodedBytes > 4 { // malformed
-                    onLog?("Gói MQTT lỗi (remaining length)")
+                    onLog?("Malformed MQTT packet (remaining length)")
                     handleDisconnect()
                     return
                 }
@@ -213,12 +213,12 @@ final class MQTTClient {
         case 2: // CONNACK
             let code = body.count >= 2 ? body[body.startIndex + 1] : 0xFF
             if code == 0 {
-                onLog?("CONNACK OK — đã kết nối MQTT")
+                onLog?("CONNACK OK — MQTT connected")
                 reconnectDelay = 2
                 state = .connected
                 startPing()
             } else {
-                onLog?("CONNACK từ chối, mã=\(code)")
+                onLog?("CONNACK refused, code=\(code)")
                 handleDisconnect()
             }
         case 3: // PUBLISH
@@ -336,7 +336,7 @@ final class MQTTClient {
 
     private func write(_ data: Data) {
         conn?.send(content: data, completion: .contentProcessed { [weak self] err in
-            if let err { self?.onLog?("Lỗi gửi: \(err.localizedDescription)") }
+            if let err { self?.onLog?("Send error: \(err.localizedDescription)") }
         })
     }
 

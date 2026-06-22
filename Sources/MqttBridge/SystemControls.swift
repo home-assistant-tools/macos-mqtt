@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CoreGraphics
 
 /// Wraps macOS system actions: volume, mute, brightness (DDC via m1ddc),
 /// app launching, RTSP casting (VLC) and display sleep/wake.
@@ -283,5 +284,40 @@ struct SystemControls {
 
     func sleepNow() {
         runBg("/usr/bin/pmset", ["sleepnow"])
+    }
+
+    // MARK: - Display power state
+
+    /// True if the main display is asleep (used to sync the Display switch).
+    func displayAsleep() -> Bool {
+        CGDisplayIsAsleep(CGMainDisplayID()) != 0
+    }
+
+    // MARK: - Media (nowplaying-cli)
+
+    var nowplayingAvailable: Bool {
+        FileManager.default.isExecutableFile(atPath: config.nowplayingPath)
+    }
+
+    func mediaPlayPause() { runBg(config.nowplayingPath, ["togglePlayPause"]) }
+    func mediaNext() { runBg(config.nowplayingPath, ["next"]) }
+    func mediaPrevious() { runBg(config.nowplayingPath, ["previous"]) }
+
+    /// Current track as "Title — Artist" (empty if nothing / not available).
+    func nowPlaying() -> String {
+        guard nowplayingAvailable else { return "" }
+        let title = run(config.nowplayingPath, ["get", "title"])
+        let artist = run(config.nowplayingPath, ["get", "artist"])
+        let t = title == "null" ? "" : title
+        let a = artist == "null" ? "" : artist
+        if t.isEmpty && a.isEmpty { return "" }
+        if a.isEmpty { return t }
+        if t.isEmpty { return a }
+        return "\(t) — \(a)"
+    }
+
+    /// Apps currently producing audio (CoreAudio), comma-separated.
+    func audioApps() -> String {
+        AudioControls.playingApps().joined(separator: ", ")
     }
 }
