@@ -23,6 +23,10 @@ App công bố các entity sau lên Home Assistant:
 | Thông báo | `text` | Hiện banner thông báo trên Mac |
 | Đọc (TTS) | `text` | Đọc to văn bản qua loa Mac (`say`) |
 | Khoá màn hình | `button` | Khoá màn hình ngay |
+| Shortcut + Chạy Shortcut | `select` + `button` | Chọn & chạy Shortcut của macOS (`shortcuts`) |
+| Ngăn ngủ | `switch` | Giữ máy thức (`caffeinate`) |
+| Mở URL | `text` | Mở web/deeplink trên Mac |
+| Ngủ máy | `button` | Đưa Mac vào chế độ ngủ |
 
 Độ sáng để trống danh sách màn hình → tự chỉnh **tất cả** màn hình DDC.
 
@@ -36,6 +40,8 @@ App cũng công bố các **sensor** theo dõi máy (cập nhật ~20s):
 | IP local | `sensor` | Địa chỉ IP LAN |
 | WiFi | `sensor` dBm | Cường độ sóng (ẩn nếu dùng Ethernet) |
 | Bluetooth | `binary_sensor` | Bật/tắt |
+| Uptime | `sensor` | Thời gian máy đã chạy |
+| Đĩa trống | `sensor` GB | Dung lượng còn trống |
 | Pin / Đang sạc | `sensor` % / `binary_sensor` | **Chỉ hiện nếu máy có pin** (laptop) |
 
 Tất cả gom dưới **một thiết bị** trong HA. Có **màn hình Nhật ký lệnh** ghi lại mọi
@@ -65,6 +71,7 @@ Log file: `~/Library/Logs/macos-mqtt.log`.
 
 ## Tự chạy lúc đăng nhập
 
+Bấm icon menu bar → **Mở khi đăng nhập** (dùng `SMAppService`). Hoặc thủ công:
 System Settings → General → Login Items → thêm **MQTT Bridge.app**.
 
 ## Build từ source

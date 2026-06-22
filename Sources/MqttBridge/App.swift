@@ -49,6 +49,10 @@ struct MenuContent: View {
         Button("Nhật ký lệnh…") { open("log") }
         Button("Kết nối lại") { state.restart() }
         Divider()
+        Button(LoginItem.isEnabled ? "✓ Mở khi đăng nhập" : "Mở khi đăng nhập") {
+            LoginItem.toggle()
+        }
+        Divider()
         Text("macos-mqtt v\(state.version)")
         Button("Thoát") { NSApplication.shared.terminate(nil) }
     }

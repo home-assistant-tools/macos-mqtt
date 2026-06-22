@@ -19,10 +19,13 @@ final class Bridge {
     // Entity state
     private var selectedCamera: String = ""
     private var selectedApp: String = ""
+    private var selectedShortcut: String = ""
     private var brightness: Int = 50
     private var lastVolume: Int = -1
     private var lastMuted: Bool?
     private var appList: [String] = []
+    private var shortcutList: [String] = []
+    private var caffeinate: Process?
 
     private let appVersion: String
 
@@ -45,6 +48,8 @@ final class Bridge {
             guard let self else { return }
             self.appList = self.controls.listApps()
             if self.selectedApp.isEmpty { self.selectedApp = self.appList.first ?? "" }
+            self.shortcutList = self.controls.listShortcuts()
+            if self.selectedShortcut.isEmpty { self.selectedShortcut = self.shortcutList.first ?? "" }
             self.brightness = self.initialBrightness()
             self.hasBattery = self.controls.battery() != nil
 
@@ -119,6 +124,21 @@ final class Bridge {
             if !payload.isEmpty { controls.say(payload); log("say: \(payload)", .action) }
         case "lock/press":
             controls.lockScreen(); log("khoá màn hình", .action)
+        case "shortcut/set":
+            selectedShortcut = payload
+            client.publish("\(base)/shortcut", payload, retain: true)
+            log("shortcut chọn → \(payload)", .action)
+        case "run_shortcut/press":
+            if !selectedShortcut.isEmpty {
+                controls.runShortcut(selectedShortcut)
+                log("chạy shortcut → \(selectedShortcut)", .action)
+            }
+        case "open_url/set":
+            if !payload.isEmpty { controls.openURL(payload); log("mở URL: \(payload)", .action) }
+        case "sleep/press":
+            controls.sleepNow(); log("ngủ máy", .action)
+        case "caffeinate/set":
+            setCaffeinate(payload == "ON")
         default:
             log("lệnh không rõ: \(topic)", .warn)
         }
@@ -132,6 +152,23 @@ final class Bridge {
             controls.vlcAvailable ? .action : .warn)
     }
 
+    private func setCaffeinate(_ on: Bool) {
+        if on {
+            if caffeinate?.isRunning == true { return }
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
+            p.arguments = ["-dimsu"] // prevent display + system sleep
+            try? p.run()
+            caffeinate = p
+            log("ngăn ngủ: BẬT", .action)
+        } else {
+            caffeinate?.terminate()
+            caffeinate = nil
+            log("ngăn ngủ: TẮT", .action)
+        }
+        client.publish("\(base)/caffeinate", on ? "ON" : "OFF", retain: true)
+    }
+
     // MARK: - State publishing
 
     private func publishAllStates() {
@@ -142,7 +179,9 @@ final class Bridge {
         client.publish("\(base)/brightness", String(brightness), retain: true)
         client.publish("\(base)/camera", selectedCamera, retain: true)
         client.publish("\(base)/app", selectedApp, retain: true)
+        client.publish("\(base)/shortcut", selectedShortcut, retain: true)
         client.publish("\(base)/display", "ON", retain: true)
+        client.publish("\(base)/caffeinate", caffeinate?.isRunning == true ? "ON" : "OFF", retain: true)
     }
 
     private func startTimers() {
@@ -172,6 +211,7 @@ final class Bridge {
         queue.async { [weak self] in
             self?.pollTimer?.cancel(); self?.pollTimer = nil
             self?.appsTimer?.cancel(); self?.appsTimer = nil
+            self?.caffeinate?.terminate(); self?.caffeinate = nil
         }
         sensorQueue.async { [weak self] in
             self?.sensorTimer?.cancel(); self?.sensorTimer = nil
@@ -185,6 +225,8 @@ final class Bridge {
         if let v = controls.localIP() { client.publish("\(base)/ip", v, retain: true) }
         if let v = controls.wifiRSSI() { client.publish("\(base)/wifi", String(v), retain: true) }
         if let v = controls.bluetoothOn() { client.publish("\(base)/bluetooth", v ? "ON" : "OFF", retain: true) }
+        if let v = controls.uptimeString() { client.publish("\(base)/uptime", v, retain: true) }
+        if let v = controls.diskFreeGB() { client.publish("\(base)/disk_free", String(v), retain: true) }
         if hasBattery, let b = controls.battery() {
             client.publish("\(base)/battery", String(b.percent), retain: true)
             client.publish("\(base)/charging", b.charging ? "ON" : "OFF", retain: true)
@@ -221,7 +263,8 @@ final class Bridge {
             "\(base)/camera/set", "\(base)/cast/press", "\(base)/stop_cast/press",
             "\(base)/cast_url/set", "\(base)/app/set", "\(base)/open_app/press",
             "\(base)/display/set", "\(base)/notify/set", "\(base)/say/set",
-            "\(base)/lock/press",
+            "\(base)/lock/press", "\(base)/shortcut/set", "\(base)/run_shortcut/press",
+            "\(base)/open_url/set", "\(base)/sleep/press", "\(base)/caffeinate/set",
         ], qos: 1)
     }
 
@@ -312,6 +355,28 @@ final class Bridge {
             "name": "Khoá màn hình", "icon": "mdi:lock",
             "command_topic": "\(base)/lock/press",
         ])
+        publish(discovery: "select", "shortcut", [
+            "name": "Shortcut", "icon": "mdi:apple",
+            "command_topic": "\(base)/shortcut/set", "state_topic": "\(base)/shortcut",
+            "options": shortcutList.isEmpty ? ["—"] : shortcutList,
+        ])
+        publish(discovery: "button", "run_shortcut", [
+            "name": "Chạy Shortcut", "icon": "mdi:play-box",
+            "command_topic": "\(base)/run_shortcut/press",
+        ])
+        publish(discovery: "switch", "caffeinate", [
+            "name": "Ngăn ngủ", "icon": "mdi:coffee",
+            "command_topic": "\(base)/caffeinate/set", "state_topic": "\(base)/caffeinate",
+            "payload_on": "ON", "payload_off": "OFF",
+        ])
+        publish(discovery: "text", "open_url", [
+            "name": "Mở URL", "icon": "mdi:web",
+            "command_topic": "\(base)/open_url/set", "min": 0, "max": 255, "mode": "text",
+        ])
+        publish(discovery: "button", "sleep", [
+            "name": "Ngủ máy", "icon": "mdi:power-sleep",
+            "command_topic": "\(base)/sleep/press",
+        ])
 
         // Sensors
         publish(discovery: "sensor", "cpu", [
@@ -337,6 +402,13 @@ final class Bridge {
         publish(discovery: "binary_sensor", "bluetooth", [
             "name": "Bluetooth", "icon": "mdi:bluetooth", "state_topic": "\(base)/bluetooth",
             "payload_on": "ON", "payload_off": "OFF",
+        ])
+        publish(discovery: "sensor", "uptime", [
+            "name": "Uptime", "icon": "mdi:timer-outline", "state_topic": "\(base)/uptime",
+        ])
+        publish(discovery: "sensor", "disk_free", [
+            "name": "Đĩa trống", "icon": "mdi:harddisk", "state_topic": "\(base)/disk_free",
+            "unit_of_measurement": "GB", "state_class": "measurement",
         ])
         if hasBattery {
             publish(discovery: "sensor", "battery", [

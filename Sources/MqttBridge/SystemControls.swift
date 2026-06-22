@@ -240,4 +240,48 @@ struct SystemControls {
         }
         return Battery(percent: pct, charging: !out.contains("discharging"))
     }
+
+    func uptimeString() -> String? {
+        // kern.boottime: "{ sec = 1718000000, usec = 0 } ..."
+        let out = run("/usr/sbin/sysctl", ["-n", "kern.boottime"])
+        guard let r = out.range(of: #"sec = (\d+)"#, options: .regularExpression),
+              let boot = Int(String(out[r]).filter { $0.isNumber }) else { return nil }
+        var secs = Int(Date().timeIntervalSince1970) - boot
+        if secs < 0 { secs = 0 }
+        let d = secs / 86400, h = (secs % 86400) / 3600, m = (secs % 3600) / 60
+        if d > 0 { return "\(d)d \(h)h \(m)m" }
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m)m"
+    }
+
+    func diskFreeGB() -> Int? {
+        let out = run("/bin/df", ["-k", "/System/Volumes/Data"])
+        guard let line = out.split(separator: "\n").last else { return nil }
+        let cols = line.split(separator: " ", omittingEmptySubsequences: true)
+        // df -k columns: FS, blocks, used, available, capacity, ...
+        guard cols.count >= 4, let availKB = Double(cols[3]) else { return nil }
+        return Int((availKB / 1024 / 1024).rounded())
+    }
+
+    // MARK: - Shortcuts / URL / power
+
+    func listShortcuts() -> [String] {
+        let out = run("/usr/bin/shortcuts", ["list"])
+        return out.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func runShortcut(_ name: String) {
+        runBg("/usr/bin/shortcuts", ["run", name])
+    }
+
+    func openURL(_ url: String) {
+        runBg("/usr/bin/open", [url])
+    }
+
+    func sleepNow() {
+        runBg("/usr/bin/pmset", ["sleepnow"])
+    }
 }
