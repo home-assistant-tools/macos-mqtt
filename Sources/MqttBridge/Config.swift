@@ -1,11 +1,5 @@
 import Foundation
 
-struct Camera: Codable, Identifiable, Hashable {
-    var id = UUID()
-    var name: String = ""
-    var url: String = ""
-}
-
 struct Config: Codable {
     var host: String = "192.168.1.10"
     var port: Int = 1883
@@ -20,8 +14,6 @@ struct Config: Codable {
     var nowplayingPath: String = "/opt/homebrew/bin/nowplaying-cli"
     /// Empty = control all DDC displays automatically.
     var brightnessDisplays: [Int] = []
-
-    var cameras: [Camera] = []
 
     static let supportDir: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -72,7 +64,6 @@ extension Config {
         cfg.m1ddcPath = try c.decodeIfPresent(String.self, forKey: .m1ddcPath) ?? cfg.m1ddcPath
         cfg.nowplayingPath = try c.decodeIfPresent(String.self, forKey: .nowplayingPath) ?? cfg.nowplayingPath
         cfg.brightnessDisplays = try c.decodeIfPresent([Int].self, forKey: .brightnessDisplays) ?? cfg.brightnessDisplays
-        cfg.cameras = try c.decodeIfPresent([Camera].self, forKey: .cameras) ?? cfg.cameras
         self = cfg
     }
 }

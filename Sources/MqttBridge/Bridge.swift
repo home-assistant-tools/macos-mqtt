@@ -17,7 +17,7 @@ final class Bridge {
     private var publishedCount = 0
 
     // Entity state
-    private var selectedCamera = ""
+    private var castFullscreen = true
     private var selectedApp = ""
     private var selectedShortcut = ""
     private var selectedAudioOutput = ""
@@ -42,7 +42,6 @@ final class Bridge {
         self.client = client
         self.appVersion = version
         self.log = log
-        self.selectedCamera = config.cameras.first?.name ?? ""
     }
 
     // MARK: - Lifecycle
@@ -94,21 +93,21 @@ final class Bridge {
             client.publish("\(base)/brightness", String(v), retain: true)
             log(controls.m1ddcAvailable ? "brightness → \(v)" : "brightness \(v) (m1ddc not installed)",
                 controls.m1ddcAvailable ? .action : .warn)
-        case "camera/set":
-            selectedCamera = payload
-            client.publish("\(base)/camera", payload, retain: true)
-            log("camera → \(payload)", .action)
-        case "cast/press":
-            castSelected()
         case "stop_cast/press":
-            controls.stopCast(); log("stop cast", .action)
+            controls.stopCast(); log("stop stream", .action)
+        case "cast_fullscreen/set":
+            castFullscreen = (payload == "ON")
+            client.publish("\(base)/cast_fullscreen", payload, retain: true)
+            log("stream fullscreen → \(payload)", .action)
         case "cast_url/set":
             if !payload.isEmpty {
-                controls.cast(url: payload)
-                log(controls.vlcAvailable ? "cast url → \(payload)" : "cast url (VLC not installed)",
+                controls.cast(url: payload, fullscreen: castFullscreen)
+                log(controls.vlcAvailable
+                    ? "stream \(payload) (fullscreen=\(castFullscreen))"
+                    : "stream (VLC not installed)",
                     controls.vlcAvailable ? .action : .warn)
             }
-            client.publish("\(base)/cast_url", "", retain: true)
+            client.publish("\(base)/cast_url", blankText, retain: true)
         case "app/set":
             selectedApp = payload
             controls.openApp(payload)
@@ -119,10 +118,10 @@ final class Bridge {
             log("display → \(payload)", .action)
         case "notify/set":
             if !payload.isEmpty { controls.notify(payload); log("notify: \(payload)", .action) }
-            client.publish("\(base)/notify", "", retain: true)
+            client.publish("\(base)/notify", blankText, retain: true)
         case "say/set":
             if !payload.isEmpty { controls.say(payload); log("speak: \(payload)", .action) }
-            client.publish("\(base)/say", "", retain: true)
+            client.publish("\(base)/say", blankText, retain: true)
         case "lock/press":
             controls.lockScreen(); log("lock screen", .action)
         case "shortcut/set":
@@ -132,7 +131,7 @@ final class Bridge {
             log("run shortcut → \(payload)", .action)
         case "open_url/set":
             if !payload.isEmpty { controls.openURL(payload); log("open url: \(payload)", .action) }
-            client.publish("\(base)/open_url", "", retain: true)
+            client.publish("\(base)/open_url", blankText, retain: true)
         case "sleep/press":
             controls.sleepNow(); log("sleep", .action)
         case "caffeinate/set":
@@ -151,14 +150,6 @@ final class Bridge {
         default:
             log("unknown command: \(topic)", .warn)
         }
-    }
-
-    private func castSelected() {
-        let cam = cfg.cameras.first { $0.name == selectedCamera } ?? cfg.cameras.first
-        guard let cam else { log("cast: no camera configured", .warn); return }
-        controls.cast(url: cam.url)
-        log(controls.vlcAvailable ? "cast \(cam.name)" : "cast \(cam.name) (VLC not installed)",
-            controls.vlcAvailable ? .action : .warn)
     }
 
     private func setCaffeinate(_ on: Bool) {
@@ -186,17 +177,21 @@ final class Bridge {
         client.publish("\(base)/volume", String(v), retain: true)
         client.publish("\(base)/mute", m ? "ON" : "OFF", retain: true)
         client.publish("\(base)/brightness", String(brightness), retain: true)
-        client.publish("\(base)/camera", selectedCamera, retain: true)
         client.publish("\(base)/app", selectedApp, retain: true)
         client.publish("\(base)/shortcut", selectedShortcut, retain: true)
         client.publish("\(base)/audio_output", selectedAudioOutput, retain: true)
         client.publish("\(base)/display", displayOn ? "ON" : "OFF", retain: true)
+        client.publish("\(base)/cast_fullscreen", castFullscreen ? "ON" : "OFF", retain: true)
         client.publish("\(base)/caffeinate", caffeinate?.isRunning == true ? "ON" : "OFF", retain: true)
-        // Text inputs start empty (avoid "unknown").
+        // Text inputs show blank (a retained space; an empty retained payload
+        // would be deleted by the broker and HA would show "unknown").
         for obj in ["cast_url", "notify", "say", "open_url"] {
-            client.publish("\(base)/\(obj)", "", retain: true)
+            client.publish("\(base)/\(obj)", blankText, retain: true)
         }
     }
+
+    /// Retained "blank" value for command-only text inputs.
+    private let blankText = " "
 
     private func startTimers() {
         pollTimer?.cancel()
@@ -273,7 +268,7 @@ final class Bridge {
     private func subscribeCommands() {
         client.subscribe([
             "\(base)/volume/set", "\(base)/mute/set", "\(base)/brightness/set",
-            "\(base)/camera/set", "\(base)/cast/press", "\(base)/stop_cast/press",
+            "\(base)/stop_cast/press", "\(base)/cast_fullscreen/set",
             "\(base)/cast_url/set", "\(base)/app/set", "\(base)/display/set",
             "\(base)/notify/set", "\(base)/say/set", "\(base)/lock/press",
             "\(base)/shortcut/set", "\(base)/open_url/set", "\(base)/sleep/press",
@@ -328,21 +323,18 @@ final class Bridge {
             "command_topic": "\(base)/brightness/set", "state_topic": "\(base)/brightness",
             "min": 0, "max": 100, "step": 1, "mode": "slider", "unit_of_measurement": "%",
         ])
-        publish(discovery: "select", "camera", [
-            "name": "Camera", "icon": "mdi:cctv",
-            "command_topic": "\(base)/camera/set", "state_topic": "\(base)/camera",
-            "options": cfg.cameras.isEmpty ? ["—"] : cfg.cameras.map { $0.name },
-        ])
-        publish(discovery: "button", "cast", [
-            "name": "Cast camera", "icon": "mdi:cast", "command_topic": "\(base)/cast/press",
-        ])
-        publish(discovery: "button", "stop_cast", [
-            "name": "Stop cast", "icon": "mdi:cast-off", "command_topic": "\(base)/stop_cast/press",
-        ])
         publish(discovery: "text", "cast_url", [
-            "name": "Cast URL", "icon": "mdi:link-variant",
+            "name": "Stream RTSP URL", "icon": "mdi:cast",
             "command_topic": "\(base)/cast_url/set", "state_topic": "\(base)/cast_url",
             "min": 0, "max": 255, "mode": "text",
+        ])
+        publish(discovery: "switch", "cast_fullscreen", [
+            "name": "Stream fullscreen", "icon": "mdi:fullscreen",
+            "command_topic": "\(base)/cast_fullscreen/set", "state_topic": "\(base)/cast_fullscreen",
+            "payload_on": "ON", "payload_off": "OFF",
+        ])
+        publish(discovery: "button", "stop_cast", [
+            "name": "Stop stream", "icon": "mdi:stop", "command_topic": "\(base)/stop_cast/press",
         ])
         publishAppSelectDiscovery()
         publish(discovery: "switch", "display", [
@@ -469,7 +461,8 @@ final class Bridge {
 
     /// Remove entities that existed in older versions (publish empty retained config).
     private func clearDeprecatedDiscovery() {
-        for (component, obj) in [("button", "open_app"), ("button", "run_shortcut")] {
+        for (component, obj) in [("button", "open_app"), ("button", "run_shortcut"),
+                                 ("select", "camera"), ("button", "cast")] {
             client.publish("\(cfg.discoveryPrefix)/\(component)/\(cfg.nodeId)/\(obj)/config",
                            "", qos: 1, retain: true)
         }

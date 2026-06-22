@@ -12,10 +12,9 @@ single native, Developer-ID-signed `.app`.
 | Volume | `number` | System output volume (0–100) |
 | Mute | `switch` | Mute / unmute |
 | Brightness | `number` | External display brightness over DDC (needs `m1ddc`) — controls **all** displays when none configured |
-| Camera | `select` | Pick a configured RTSP camera |
-| Cast camera | `button` | Open the selected camera **fullscreen** (via VLC) |
-| Stop cast | `button` | Close the camera window |
-| Cast URL | `text` | Cast any RTSP URL |
+| Stream RTSP URL | `text` | Play an RTSP stream on screen via VLC — HA sets this to trigger it |
+| Stream fullscreen | `switch` | Whether the stream opens fullscreen |
+| Stop stream | `button` | Close the stream window |
 | Open app | `select` | Installed apps (auto-scanned) — **opens on selection** |
 | Display | `switch` | Wake / sleep display — **state synced to real display power** |
 | Notification | `text` | Show a banner on the Mac |
@@ -44,8 +43,17 @@ single native, Developer-ID-signed `.app`.
 Everything is grouped under **one device** in HA. A live **Command Log** window
 records every command received from the server.
 
-> Original goal: when someone **rings the doorbell**, HA presses *Cast camera* →
-> the Mac shows the camera fullscreen, no manual app needed.
+> Original goal: when someone **rings the doorbell**, an HA automation sets
+> *Stream RTSP URL* to the camera's RTSP → the Mac shows it fullscreen, no manual
+> app needed. Example:
+>
+> ```yaml
+> - service: switch.turn_on
+>   target: { entity_id: switch.mac_stream_fullscreen }
+> - service: text.set_value
+>   target: { entity_id: text.mac_stream_rtsp_url }
+>   data: { value: "rtsp://user:pass@192.168.1.50:8554/ch1" }
+> ```
 
 ## Requirements
 
@@ -57,11 +65,11 @@ records every command received from the server.
 
 ## Install
 
-1. Download `MQTT-Bridge-x.y.z.zip` from [Releases](../../releases), unzip, drag
-   **MQTT Bridge.app** into `/Applications`.
+1. Download `MQTT-Bridge-x.y.z.dmg` from [Releases](../../releases), open it and drag
+   **MQTT Bridge.app** into `Applications`.
 2. Open it — an icon appears in the **menu bar**.
 3. Click it → **MQTT Settings…**, enter broker host/port/user/password, set a
-   *Node ID*, add RTSP cameras → **Save & reconnect**.
+   *Node ID* → **Save & reconnect**.
 4. In Home Assistant → **Settings → Devices** — the device appears automatically.
 5. Click the menu icon → **Open at Login** to start it on boot.
 
@@ -76,15 +84,15 @@ Needs Command Line Tools (`swift`), **no full Xcode required**.
 # regenerate the icon (optional)
 scripts/make_icon.sh
 
-# build + sign (Developer ID)
-SIGN_ID="Developer ID Application: YOUR NAME (TEAMID)" scripts/build.sh 2.0.0
+# build + sign (Developer ID) → produces a signed .dmg
+SIGN_ID="Developer ID Application: YOUR NAME (TEAMID)" scripts/build.sh 2.1.0
 
-# notarize for distribution (needs an app-specific password)
+# notarize the dmg for distribution (needs an app-specific password)
 APPLE_ID="you@example.com" TEAM_ID="TEAMID" APP_PASSWORD="xxxx-xxxx-xxxx-xxxx" \
-    scripts/notarize.sh 2.0.0
+    scripts/notarize.sh 2.1.0
 ```
 
-Outputs `dist/MQTT Bridge.app` and `dist/MQTT-Bridge-2.0.0.zip`.
+Outputs `dist/MQTT Bridge.app` and `dist/MQTT-Bridge-2.1.0.dmg`.
 
 ## Architecture
 

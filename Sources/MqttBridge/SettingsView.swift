@@ -14,7 +14,6 @@ struct SettingsView: View {
     @State private var m1ddcPath = ""
     @State private var nowplayingPath = ""
     @State private var brightnessDisplays = ""
-    @State private var cameras: [Camera] = []
     @State private var saved = false
 
     var body: some View {
@@ -42,8 +41,6 @@ struct SettingsView: View {
                     field("Brightness displays", text: $brightnessDisplays, placeholder: "blank = all")
                 }
 
-                cameraSection
-
                 HStack {
                     Button("Save & reconnect") { saveAll() }
                         .keyboardShortcut(.defaultAction)
@@ -66,30 +63,6 @@ struct SettingsView: View {
                 .fill(state.isConnected ? Color.green : Color.orange)
                 .frame(width: 10, height: 10)
             Text(state.statusText).font(.callout)
-        }
-    }
-
-    private var cameraSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Cameras (RTSP)").font(.headline)
-                Spacer()
-                Button {
-                    cameras.append(Camera(name: "Camera \(cameras.count + 1)", url: "rtsp://"))
-                } label: { Image(systemName: "plus") }
-            }
-            ForEach($cameras) { $cam in
-                HStack {
-                    TextField("Name", text: $cam.name).frame(width: 120)
-                    TextField("rtsp://…", text: $cam.url)
-                    Button(role: .destructive) {
-                        cameras.removeAll { $0.id == cam.id }
-                    } label: { Image(systemName: "trash") }
-                }
-            }
-            if cameras.isEmpty {
-                Text("No cameras yet").font(.caption).foregroundStyle(.secondary)
-            }
         }
     }
 
@@ -127,7 +100,6 @@ struct SettingsView: View {
         m1ddcPath = c.m1ddcPath
         nowplayingPath = c.nowplayingPath
         brightnessDisplays = c.brightnessDisplays.map(String.init).joined(separator: ",")
-        cameras = c.cameras
     }
 
     private func saveAll() {
@@ -146,7 +118,6 @@ struct SettingsView: View {
         c.brightnessDisplays = brightnessDisplays
             .split(separator: ",")
             .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-        c.cameras = cameras.filter { !$0.name.isEmpty && !$0.url.isEmpty }
         state.save(c)
         saved = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { saved = false }

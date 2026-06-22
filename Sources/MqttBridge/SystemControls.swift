@@ -114,14 +114,15 @@ struct SystemControls {
         FileManager.default.isExecutableFile(atPath: config.vlcPath)
     }
 
-    func cast(url: String) {
+    func cast(url: String, fullscreen: Bool = true) {
         stopCast()
         // Wake displays so the feed is visible immediately.
         runBg("/usr/bin/caffeinate", ["-u", "-t", "2"])
         guard vlcAvailable else { return }
         let vlc = config.vlcPath
-        let args = ["--fullscreen", "--rtsp-tcp", "--no-video-title-show",
-                    "--video-on-top", "--network-caching=200", url]
+        var args = ["--rtsp-tcp", "--no-video-title-show", "--video-on-top", "--network-caching=200"]
+        if fullscreen { args.insert("--fullscreen", at: 0) }
+        args.append(url)
         // Small delay so the previous VLC fully exits before relaunching.
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
             self.runBg(vlc, args)
