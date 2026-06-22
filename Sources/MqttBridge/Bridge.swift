@@ -55,6 +55,7 @@ final class Bridge {
 
             self.client.publish(self.availabilityTopic, "online", qos: 1, retain: true)
             self.publishDiscovery()
+            self.clearDeprecatedDiscovery()
             self.subscribeCommands()
             self.publishAllStates()
             self.startTimers()
@@ -107,13 +108,9 @@ final class Bridge {
             }
         case "app/set":
             selectedApp = payload
+            controls.openApp(payload)
             client.publish("\(base)/app", payload, retain: true)
-            log("app chọn → \(payload)", .action)
-        case "open_app/press":
-            if !selectedApp.isEmpty {
-                controls.openApp(selectedApp)
-                log("mở app → \(selectedApp)", .action)
-            }
+            log("mở app → \(payload)", .action)
         case "display/set":
             if payload == "ON" { controls.wakeDisplay() } else { controls.sleepDisplay() }
             client.publish("\(base)/display", payload, retain: true)
@@ -126,13 +123,9 @@ final class Bridge {
             controls.lockScreen(); log("khoá màn hình", .action)
         case "shortcut/set":
             selectedShortcut = payload
+            controls.runShortcut(payload)
             client.publish("\(base)/shortcut", payload, retain: true)
-            log("shortcut chọn → \(payload)", .action)
-        case "run_shortcut/press":
-            if !selectedShortcut.isEmpty {
-                controls.runShortcut(selectedShortcut)
-                log("chạy shortcut → \(selectedShortcut)", .action)
-            }
+            log("chạy shortcut → \(payload)", .action)
         case "open_url/set":
             if !payload.isEmpty { controls.openURL(payload); log("mở URL: \(payload)", .action) }
         case "sleep/press":
@@ -261,9 +254,9 @@ final class Bridge {
         client.subscribe([
             "\(base)/volume/set", "\(base)/mute/set", "\(base)/brightness/set",
             "\(base)/camera/set", "\(base)/cast/press", "\(base)/stop_cast/press",
-            "\(base)/cast_url/set", "\(base)/app/set", "\(base)/open_app/press",
+            "\(base)/cast_url/set", "\(base)/app/set",
             "\(base)/display/set", "\(base)/notify/set", "\(base)/say/set",
-            "\(base)/lock/press", "\(base)/shortcut/set", "\(base)/run_shortcut/press",
+            "\(base)/lock/press", "\(base)/shortcut/set",
             "\(base)/open_url/set", "\(base)/sleep/press", "\(base)/caffeinate/set",
         ], qos: 1)
     }
@@ -332,10 +325,6 @@ final class Bridge {
             "min": 0, "max": 255, "mode": "text",
         ])
         publishAppSelectDiscovery()
-        publish(discovery: "button", "open_app", [
-            "name": "Mở ứng dụng", "icon": "mdi:application",
-            "command_topic": "\(base)/open_app/press",
-        ])
         publish(discovery: "switch", "display", [
             "name": "Màn hình", "icon": "mdi:monitor",
             "command_topic": "\(base)/display/set", "state_topic": "\(base)/display",
@@ -356,13 +345,9 @@ final class Bridge {
             "command_topic": "\(base)/lock/press",
         ])
         publish(discovery: "select", "shortcut", [
-            "name": "Shortcut", "icon": "mdi:apple",
+            "name": "Chạy Shortcut", "icon": "mdi:apple",
             "command_topic": "\(base)/shortcut/set", "state_topic": "\(base)/shortcut",
             "options": shortcutList.isEmpty ? ["—"] : shortcutList,
-        ])
-        publish(discovery: "button", "run_shortcut", [
-            "name": "Chạy Shortcut", "icon": "mdi:play-box",
-            "command_topic": "\(base)/run_shortcut/press",
         ])
         publish(discovery: "switch", "caffeinate", [
             "name": "Ngăn ngủ", "icon": "mdi:coffee",
@@ -425,9 +410,17 @@ final class Bridge {
 
     private func publishAppSelectDiscovery() {
         publish(discovery: "select", "app", [
-            "name": "Ứng dụng", "icon": "mdi:apps",
+            "name": "Mở ứng dụng", "icon": "mdi:apps",
             "command_topic": "\(base)/app/set", "state_topic": "\(base)/app",
             "options": appList.isEmpty ? ["—"] : appList,
         ])
+    }
+
+    /// Remove entities that existed in older versions (publish empty retained config).
+    private func clearDeprecatedDiscovery() {
+        for (component, obj) in [("button", "open_app"), ("button", "run_shortcut")] {
+            client.publish("\(cfg.discoveryPrefix)/\(component)/\(cfg.nodeId)/\(obj)/config",
+                           "", qos: 1, retain: true)
+        }
     }
 }

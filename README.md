@@ -17,13 +17,12 @@ App công bố các entity sau lên Home Assistant:
 | Cast camera | `button` | Mở camera đang chọn **fullscreen** (qua VLC) |
 | Dừng cast | `button` | Tắt cửa sổ camera |
 | Cast URL | `text` | Cast một URL RTSP bất kỳ |
-| Ứng dụng | `select` | Danh sách app cài trên Mac (tự quét) |
-| Mở ứng dụng | `button` | Mở app đang chọn |
+| Mở ứng dụng | `select` | Danh sách app cài trên Mac (tự quét) — **chọn là mở ngay** |
 | Màn hình | `switch` | Bật (đánh thức) / tắt màn hình |
 | Thông báo | `text` | Hiện banner thông báo trên Mac |
 | Đọc (TTS) | `text` | Đọc to văn bản qua loa Mac (`say`) |
 | Khoá màn hình | `button` | Khoá màn hình ngay |
-| Shortcut + Chạy Shortcut | `select` + `button` | Chọn & chạy Shortcut của macOS (`shortcuts`) |
+| Chạy Shortcut | `select` | Shortcut của macOS — **chọn là chạy ngay** (`shortcuts`) |
 | Ngăn ngủ | `switch` | Giữ máy thức (`caffeinate`) |
 | Mở URL | `text` | Mở web/deeplink trên Mac |
 | Ngủ máy | `button` | Đưa Mac vào chế độ ngủ |
